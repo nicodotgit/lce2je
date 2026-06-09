@@ -379,73 +379,78 @@ class JavaRegionFileWriter:
             struct.pack_into(">I", self.buffer, 4096 + i * 4, self.timestamps[i])
             
         os.makedirs(os.path.dirname(self.filepath) or '.', exist_ok=True)
-        with open(self.filepath, 'wb') as f:
+        temp_filepath = self.filepath + ".tmp"
+        with open(temp_filepath, 'wb') as f:
             f.write(self.buffer)
+        os.rename(temp_filepath, self.filepath)
 
 def convert_lce_region_file(src_path: str, dest_path: str, queue=None, task_id=None):
-    if queue:
-        queue.put((task_id, 'start', os.path.basename(src_path)))
-        
-    with open(src_path, 'rb') as f:
-        region_bytes = f.read()
-        
-    if len(region_bytes) < 8192:
-        if queue: queue.put((task_id, 'done', 1024))
-        return
-        
-    writer = JavaRegionFileWriter(dest_path)
-    converted_count = 0
-    
-    for index in range(1024):
-        if queue and index % 16 == 0:
-            queue.put((task_id, 'progress', index))
+    try:
+        if queue:
+            queue.put((task_id, 'start', os.path.basename(src_path)))
             
-        offset_entry = struct.unpack_from("<I", region_bytes, index * 4)[0]
-        if offset_entry == 0: continue
+        with open(src_path, 'rb') as f:
+            region_bytes = f.read()
             
-        size_sectors = offset_entry & 0xFF
-        sector_offset = (offset_entry >> 8) & 0xFFFFFF
+        if len(region_bytes) < 8192:
+            return
+            
+        writer = JavaRegionFileWriter(dest_path)
+        converted_count = 0
         
-        if sector_offset <= 0: continue
-            
-        chunk_pos = sector_offset * 4096
-        if chunk_pos + 8 > len(region_bytes): continue
-            
-        compressed_len_raw = struct.unpack_from("<I", region_bytes, chunk_pos)[0]
-        uses_rle = (compressed_len_raw & 0x80000000) != 0
-        compressed_len = compressed_len_raw & 0x7FFFFFFF
-        decompressed_len = struct.unpack_from("<I", region_bytes, chunk_pos + 4)[0]
-        
-        if compressed_len <= 0 or chunk_pos + 8 + compressed_len > len(region_bytes):
-            continue
-            
-        compressed_data = region_bytes[chunk_pos + 8 : chunk_pos + 8 + compressed_len]
-        
-        try:
-            rle_data = zlib.decompress(compressed_data)
-            if uses_rle:
-                uncompressed_payload = rle_decode(rle_data, decompressed_len)
-            else:
-                uncompressed_payload = rle_data
+        for index in range(1024):
+            if queue and index % 16 == 0:
+                queue.put((task_id, 'progress', index))
                 
-            local_x = index & 31
-            local_z = index >> 5
+            offset_entry = struct.unpack_from("<I", region_bytes, index * 4)[0]
+            if offset_entry == 0: continue
+                
+            size_sectors = offset_entry & 0xFF
+            sector_offset = (offset_entry >> 8) & 0xFFFFFF
             
-            java_nbt_file = decode_lce_chunk_payload(uncompressed_payload)
-            out_buf = io.BytesIO()
-            java_nbt_file.write_file(buffer=out_buf)
-            java_nbt_bytes = out_buf.getvalue()
+            if sector_offset <= 0: continue
+                
+            chunk_pos = sector_offset * 4096
+            if chunk_pos + 8 > len(region_bytes): continue
+                
+            compressed_len_raw = struct.unpack_from("<I", region_bytes, chunk_pos)[0]
+            uses_rle = (compressed_len_raw & 0x80000000) != 0
+            compressed_len = compressed_len_raw & 0x7FFFFFFF
+            decompressed_len = struct.unpack_from("<I", region_bytes, chunk_pos + 4)[0]
             
-            writer.write_chunk(local_x, local_z, java_nbt_bytes)
-            converted_count += 1
-        except Exception:
-            pass
+            if compressed_len <= 0 or chunk_pos + 8 + compressed_len > len(region_bytes):
+                continue
+                
+            compressed_data = region_bytes[chunk_pos + 8 : chunk_pos + 8 + compressed_len]
             
-    if converted_count > 0:
-        writer.save()
-        
-    if queue:
-        queue.put((task_id, 'done', 1024))
+            try:
+                rle_data = zlib.decompress(compressed_data)
+                if uses_rle:
+                    uncompressed_payload = rle_decode(rle_data, decompressed_len)
+                else:
+                    uncompressed_payload = rle_data
+                    
+                local_x = index & 31
+                local_z = index >> 5
+                
+                java_nbt_file = decode_lce_chunk_payload(uncompressed_payload)
+                out_buf = io.BytesIO()
+                java_nbt_file.write_file(buffer=out_buf)
+                java_nbt_bytes = out_buf.getvalue()
+                
+                writer.write_chunk(local_x, local_z, java_nbt_bytes)
+                converted_count += 1
+            except Exception:
+                pass
+                
+        if converted_count > 0:
+            writer.save()
+            
+    except Exception as e:
+        print(f"Error converting {src_path}: {e}")
+    finally:
+        if queue:
+            queue.put((task_id, 'done', 1024))
 
 def parse_region_filename(rel_path: str) -> tuple[str, str] | None:
     norm = rel_path.replace('\\', '/')
@@ -472,7 +477,7 @@ def parse_region_filename(rel_path: str) -> tuple[str, str] | None:
     dest_rel = f"{dim}/region/r.{rx}.{rz}.mca" if dim else f"region/r.{rx}.{rz}.mca"
     return rel_path, dest_rel
 
-def convert_all_regions(input_dir: str, output_dir: str):
+def convert_all_regions(input_dir: str, output_dir: str, progress_mgr=None):
     tasks = []
     for root_dir, _, files in os.walk(input_dir):
         for file in files:
@@ -481,7 +486,10 @@ def convert_all_regions(input_dir: str, output_dir: str):
             rel_path = os.path.relpath(src_file_path, input_dir)
             mapping = parse_region_filename(rel_path)
             if mapping:
-                tasks.append((src_file_path, os.path.join(output_dir, mapping[1])))
+                dest_path = os.path.join(output_dir, mapping[1])
+                if progress_mgr and progress_mgr.is_file_created(dest_path) and os.path.exists(dest_path):
+                    continue
+                tasks.append((src_file_path, dest_path))
 
     if not tasks:
         print("No .mcr files found to convert.")
@@ -489,14 +497,27 @@ def convert_all_regions(input_dir: str, output_dir: str):
 
     max_workers = os.cpu_count() or 1
     num_slots = min(max_workers, len(tasks))
-    print(f"Converting {len(tasks)} region files using {max_workers} processes...\n")
+    print(f"Converting {len(tasks)} region files using {max_workers} threads/processes...\n")
     
-    manager = multiprocessing.Manager()
-    queue = manager.Queue()
-    
+    try:
+        manager = multiprocessing.Manager()
+        queue = manager.Queue()
+        executor_cls = ProcessPoolExecutor
+        # Test executor creation to quickly catch SemLock issues
+        _test_exec = executor_cls(max_workers=max_workers)
+        _test_exec.shutdown()
+    except OSError:
+        import queue as qlib
+        queue = qlib.Queue()
+        from concurrent.futures import ThreadPoolExecutor
+        executor_cls = ThreadPoolExecutor
+        max_workers = 1
+        num_slots = min(max_workers, len(tasks))
+        print("Warning: Multiprocessing environment not fully supported. Falling back to safe single-thread processing.")
+        
     tasks_args = [(src, dest, queue, i) for i, (src, dest) in enumerate(tasks, 1)]
     
-    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+    with executor_cls(max_workers=max_workers) as executor:
         for arg in tasks_args:
             executor.submit(convert_lce_region_file, *arg)
             
@@ -512,6 +533,12 @@ def convert_all_regions(input_dir: str, output_dir: str):
         total_tasks = len(tasks)
         pad = len(str(total_tasks))
         
+        from scripts import progress
+        def redraw():
+            print("\n" * dynamic_height, end="")
+            sys.stdout.flush()
+        progress.g_on_resume = redraw
+        
         while finished_tasks < total_tasks:
             newly_finished = []
             try:
@@ -525,6 +552,9 @@ def convert_all_regions(input_dir: str, output_dir: str):
                     elif status == 'done':
                         if t_id in task_to_slot:
                             task_to_slot[t_id]['prog'] = 1024
+                            dest_path = tasks[t_id - 1][1]
+                            if progress_mgr and os.path.exists(dest_path):
+                                progress_mgr.mark_file_created(dest_path)
                         newly_finished.append(t_id)
                         finished_tasks += 1
             except qlib.Empty:
@@ -541,7 +571,7 @@ def convert_all_regions(input_dir: str, output_dir: str):
                         slot = active_slots.index(None)
                         active_slots[slot] = t_id
                         info['slot'] = slot
-
+    
             sys.stdout.write(f"\033[{dynamic_height}A")
             
             for t_id in newly_finished:
@@ -586,4 +616,11 @@ if __name__ == "__main__":
         print("Usage: python convert_chunks.py <input_region_dir> <output_region_dir>")
         sys.exit(1)
         
-    convert_all_regions(sys.argv[1], sys.argv[2])
+    import os
+    # Add parent directory to sys.path to allow running as a script directly
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+    from scripts.progress import ProgressManager, setup_signal_handler
+    
+    pm = ProgressManager(sys.argv[2])
+    setup_signal_handler(pm, sys.argv[1], sys.argv[2])
+    convert_all_regions(sys.argv[1], sys.argv[2], progress_mgr=pm)

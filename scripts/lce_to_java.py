@@ -3,7 +3,7 @@ import shutil
 import sys
 import gzip
 
-def convert_layout(extracted_dir, java_dir):
+def convert_layout(extracted_dir, java_dir, progress_mgr=None):
     print(f"Converting layout from {extracted_dir} to {java_dir}...")
     os.makedirs(java_dir, exist_ok=True)
 
@@ -25,8 +25,13 @@ def convert_layout(extracted_dir, java_dir):
             if f.endswith('.mcr'):
                 continue
                 
+            if progress_mgr and progress_mgr.is_file_created(dest_path) and os.path.exists(dest_path):
+                continue
+                
             os.makedirs(os.path.dirname(dest_path), exist_ok=True)
             print(f"Processing {rel_path} -> {dest_rel}")
+            
+            temp_dest = dest_path + ".tmp"
             
             # Java 1.6.4 expects level.dat and player data to be GZipped
             if f == 'level.dat' or f.endswith('.dat'):
@@ -34,15 +39,27 @@ def convert_layout(extracted_dir, java_dir):
                     magic = f_in.read(2)
                     f_in.seek(0)
                     if magic != b'\x1f\x8b':
-                        with gzip.open(dest_path, 'wb') as f_out:
+                        with gzip.open(temp_dest, 'wb') as f_out:
                             shutil.copyfileobj(f_in, f_out)
                     else:
-                        shutil.copy2(src, dest_path)
+                        shutil.copy2(src, temp_dest)
             else:
-                shutil.copy2(src, dest_path)
+                shutil.copy2(src, temp_dest)
+                
+            os.rename(temp_dest, dest_path)
+            if progress_mgr:
+                progress_mgr.mark_file_created(dest_path)
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("Usage: python 2_lce_to_java.py <extracted_lce_dir> <output_java_dir>")
-    else:
-        convert_layout(sys.argv[1], sys.argv[2])
+        print("Usage: python lce_to_java.py <extracted_lce_dir> <output_java_dir>")
+        sys.exit(1)
+        
+    import os
+    # Add parent directory to sys.path to allow running as a script directly
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+    from scripts.progress import ProgressManager, setup_signal_handler
+    
+    pm = ProgressManager(sys.argv[2])
+    setup_signal_handler(pm, sys.argv[1], sys.argv[2])
+    convert_layout(sys.argv[1], sys.argv[2], progress_mgr=pm)

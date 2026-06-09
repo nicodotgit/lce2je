@@ -68,11 +68,19 @@ def inject_player_data(level_dat_path: str, players_dir: str, target_username: s
             print(f"Failed to process {filename}: {e}")
             
     if found_main:
-        # Save level.dat
-        level_nbt.write_file(level_dat_path)
+        # Save level.dat atomically to prevent corruption on interrupt
+        temp_path = level_dat_path + ".tmp"
+        level_nbt.write_file(temp_path)
+        
+        if os.path.exists(level_dat_path):
+            # On Windows, os.rename can fail if target exists
+            try: os.remove(level_dat_path)
+            except: pass
+        os.rename(temp_path, level_dat_path)
+        
         print(f"Successfully injected player '{target_username}' into level.dat!")
     else:
-        print(f"Warning: Target player '{target_username}' not found in {players_dir}.")
+        print(f"\n[ALERT] Target player '{target_username}' not found in world data. No changes made to level.dat.")
 
 if __name__ == "__main__":
     if len(sys.argv) < 4:
