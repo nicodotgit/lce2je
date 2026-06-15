@@ -6,7 +6,7 @@ class ProgressManager:
     def __init__(self, output_dir):
         self.filepath = os.path.join(output_dir, "lce2java_progress.json")
         self.output_dir = output_dir
-        self.state = {"input_file": None, "completed_steps": [], "created_files": []}
+        self.state = {"input_file": None, "completed_steps": [], "created_files": [], "player_mapping": {}}
         self.load()
 
     def load(self):
@@ -55,6 +55,18 @@ class ProgressManager:
             self.save()
         elif self.state["input_file"] != abs_in:
             raise ValueError("Cannot resume: Output directory contains partial data from a different world!")
+
+    def get_player_mapping(self, key):
+        return self.state.get("player_mapping", {}).get(key)
+
+    def set_player_mapping(self, key, mapping_data):
+        if "player_mapping" not in self.state:
+            self.state["player_mapping"] = {}
+        self.state["player_mapping"][key] = mapping_data
+        self.save()
+
+    def has_player_mapping(self):
+        return bool(self.state.get("player_mapping", {}))
 
     def nuke_progress(self, temp_dir):
         # 0. Sweep the output dir and temp dir for .tmp files

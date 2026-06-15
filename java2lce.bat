@@ -49,8 +49,6 @@ if "%BUILD_VENV%"=="1" (
     python -m pip install --upgrade pip
     pip install -r requirements.txt
     
-    :: Only write the hash file if everything succeeded. 
-    :: If the user presses Ctrl+C during install, the hash file won't exist, guaranteeing the script deletes the broken .venv on the next run!
     echo %REQ_HASH% > "%VENV_HASH_FILE%"
 ) else (
     call "%VENV_DIR%\Scripts\activate.bat"
@@ -59,8 +57,8 @@ if "%BUILD_VENV%"=="1" (
 echo =^> Launching converter...
 echo.
 
-:: Execute the main Python script, passing along any CLI arguments
-python main.py %*
+:: Execute the main Python script
+python java2lce_main.py %*
 
 :: Deactivate the virtual environment to leave the shell session clean
 call deactivate

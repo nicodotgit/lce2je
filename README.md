@@ -1,6 +1,6 @@
 # lce2java - A MCLCE to MC Java World Converter
 
-This repository contains scripts to convert Minecraft Legacy Console Edition (LCE) `.ms` world saves (Windows64 Leaked Version) to standard Minecraft Java Edition 1.6.4 saves, and vice-versa (WIP).
+This repository contains scripts to convert Minecraft Legacy Console Edition (LCE Windows64) `.ms` world saves to standard Minecraft Java Edition 1.6.4 saves, and vice-versa.
 
 ## LCE `.ms` File Format Technical Breakdown
 
@@ -15,7 +15,8 @@ The outer wrapper of the `.ms` file is Zlib-compressed, but typically includes a
 ### 2. Uncompressed Archive Payload
 Once decompressed, the file is a flat binary blob containing internal files and a File Allocation Table (FAT) located near the end of the file.
 - **Bytes 0-3**: File Allocation Table Offset (Little-Endian Uint32). This points to the absolute offset in the uncompressed data where the directory records start.
-- **Bytes 4 to (FAT Offset - 1)**: Raw concatenated binary data for all the internal files (Level metadata, region files, player data, etc.).
+- **Bytes 4-11**: An 8-byte global payload header `[Num_FAT_Records] + [09 00 09 00]` denoting the number of packed files and the global architecture save version.
+- **Bytes 12 to (FAT Offset - 1)**: Raw concatenated binary data for all the internal files (Level metadata, region files, player data, etc.).
 - **Bytes (FAT Offset) to EOF**: The directory FAT.
 
 ### 3. File Allocation Table (FAT)
@@ -23,12 +24,14 @@ The FAT consists of continuous `144-byte` records. Each record describes one int
 - **Bytes 0-127**: A UTF-16LE null-terminated string representing the file path (e.g., `level.dat`, `DIM-1r.0.0.mcr`).
 - **Bytes 128-131**: File size in bytes (Little-Endian Uint32).
 - **Bytes 132-135**: File content offset in bytes from the start of the uncompressed archive (Little-Endian Uint32).
-- **Bytes 136-143**: Additional metadata/padding (usually zeroes).
+- **Bytes 136-143**: 8 bytes of internal timestamps (Little Endian 32-bit UNIX timestamp).
 
-The list concludes when a record with a null or empty file name is reached, or the end of the file is hit.
+The list concludes immediately after the last record. LCE engine do *not* use a terminating null record; it iterates strictly up to the uncompressed data threshold.
 
 ### 4. Level and Player Data Configuration
-Because `.ms` files are themselves wrapped in Zlib compression, LCE does not store `level.dat` and `players/*.dat` files using standard GZip compression. In order for standard Java Edition builds to recognize and list these worlds, they must be locally compressed using GZip upon extraction.
+Because `.ms` files are themselves wrapped in Zlib compression, LCE does not store `level.dat` and `players/*.dat` files using standard GZip compression. In order for standard Java Edition builds to recognize and list these worlds, they must be locally compressed using GZip upon extraction. Conversely, when converting back to LCE, they must be cleanly uncompressed.
+
+Furthermore, Java Edition worlds are infinite and lack proprietary metadata bounding boxes inside `level.dat`. When converting Java worlds back to LCE, the converter programmatically injects default values for 15 proprietary LCE engine keys (e.g., `XZSize`, `ClassicMoat`) to prevent the engine from fatally crashing upon load.
 
 ### 5. Region File Differences (.mcr)
 LCE `.mcr` Region Files look deceptively similar to Java McRegion/Anvil files, but contain dramatic structural differences requiring bit-level rewriting to port:
@@ -40,19 +43,27 @@ LCE `.mcr` Region Files look deceptively similar to Java McRegion/Anvil files, b
   3. `SparseNibbleStorage`: Four 128-height data arrays (Data, SkyLight, BlockLight) utilizing plane indices and 4-bit packed nibbles.
   4. Flat 256-byte arrays for HeightMaps and Biomes.
   5. A standard Java NBT tag appended at the very end to store dynamic `Entities` and `TileEntities`.
-- **Metadata Extraction Mathematics:** To successfully parse LCE `SparseNibbleStorage` back into Java's 256-height flat format without corrupting block states (e.g. wool colors, stair facings), the data must be read using the 1D index `pos = (xz << 8) | y`. Failure to shift the coordinate plane by 8 bits results in massive array collisions, stripping the chunk of all metadata and defaulting blocks to ID `0` equivalents.
+- **Metadata Extraction Mathematics:** To successfully parse LCE `SparseNibbleStorage` back into Java's 256-height flat format without corrupting block states (e.g. wool colors, stair facings), the data must be read using the 1D index `pos = (xz << 8) | y`. When reversing the process (Java to LCE), the converter shifts bitwise indexes utilizing `(xz << 7) | y` and dynamically applies LCE header-flag compression protocols to seamlessly trim empty homogenous arrays.
 
-### 6. Player Data Quirks
+### 6. Player Data Quirks & Network UIDs
 Java 1.6.4 Singleplayer explicitly stores the host player's inventory and location inside `level.dat` under a native `Player` tag. Legacy Console Edition completely abandons this format, splitting *all* players (including the host) into the `players/` directory using numerical account IDs (e.g., `16141134514358595374.dat`).
 
-However, while LCE uses numeric filenames, it hides the player's true username internally within the `.dat` file inside a standard `UUID` NBT String tag. To perfectly convert the world for Java Singleplayer and LAN Multiplayer, the converter reads these internal `UUID` tags, injects the host's `.dat` back into `level.dat`, and automatically renames the remaining numeric files to match their usernames.
+**UID Generation:**
+The numerical IDs used by the LCE engine are **100% randomly generated** 64-bit Hexadecimal integers assigned to your profile on its very first launch, and permanently cached in a local `uid.dat` file. However, if the game's offline Xbox Live spoofing wrapper fails to initialize correctly when you host a local server, the engine panics and falls back to a hardcoded 4J Studios Developer UID: `16141134514358595374` (`0xE000D45248242F2E`). Because of this, the local Host in the Windows LCE port will *always* use this static Developer UID.
+
+**The Solution:**
+While LCE uses arbitrary numeric filenames, it hides the player's true username internally within the `.dat` file inside a standard `UUID` NBT String tag. 
+- **LCE to Java:** The converter automatically reads these internal `UUID` tags to populate an interactive menu, allowing you to select which player should become the Java Singleplayer Host. It safely injects their data into `level.dat` and automatically renames the remaining numeric files to match their usernames for flawless LAN multiplayer compatibility.
+- **Java to LCE:** The converter scans the Java world for players and interactively asks you to assign them as the LCE Win64 Host (automatically receiving the static `16141134514358595374` UID) or prompts you to input the randomly generated UIDs of your joining friends.
 
 ## Features
 
+- **Bidirectional Conversion**: Convert flawlessly from `LCE -> Java 1.6.4` and `Java 1.6.4 -> LCE`.
+- **Interactive Player Mapping**: Fully interactive terminal prompts guide you through safely linking Java multiplayer profiles to randomly generated LCE Xbox Live Network UIDs.
 - **Safe Pause & Resume**: Press `Ctrl+C` anytime during the conversion to interactively pause execution. You can `(s)ave` your precise progress, `(n)uke` safely to revert, or `(c)ancel` the pause to seamlessly continue.
 - **Atomic File Generation**: All converted chunks and metadata files are safely isolated using `.tmp` extensions until fully written. Power outages or hard interruptions will never corrupt your files.
 - **Smart Progress Tracking**: If you stop a conversion and restart it later, the script instantly verifies previously completed stages and picks up exactly where it left off, down to the specific chunk.
-- **Robust Environment Bootstrapping**: The `convert.sh` wrapper automatically manages virtual environments, hashes and upgrades missing dependencies on the fly, and protects itself against interrupted `pip install` sequences.
+- **Robust Environment Bootstrapping**: The bash and batch wrappers automatically manage virtual environments, hash and upgrade missing dependencies on the fly, and protect themselves against interrupted `pip install` sequences.
 - **Overwrite Protection**: Once a world is being converted, the output directory is locked. The toolkit will refuse to re-process any other worlds in that specific directory.
 
 ## Usage
@@ -63,33 +74,43 @@ The repository features a seamless automated workflow. You can either use the pr
 
 The easiest way to run the converter is using the provided wrapper scripts. These scripts automatically create an isolated Python virtual environment, install the necessary dependencies, and execute the converter without polluting your system Python environment.
 
+#### LCE to Java
 **Linux / macOS:**
 ```bash
-./convert.sh <path_to_saveData.ms> <output_directory> -p [optional_username]
+./lce2java.sh <path_to_saveData.ms> <output_directory>
 ```
-
 **Windows:**
 ```cmd
-convert.bat <path_to_saveData.ms> <output_directory> -p [optional_username]
+lce2java.bat <path_to_saveData.ms> <output_directory>
+```
+
+#### Java to LCE
+**Linux / macOS:**
+```bash
+./java2lce.sh <path_to_java_world> <output_saveData.ms>
+```
+**Windows:**
+```cmd
+java2lce.bat <path_to_java_world> <output_saveData.ms>
 ```
 
 ### Manual Python Execution
 
-If you prefer to manage the environment yourself, install the dependencies from `requirements.txt` and run the master entry point:
+If you prefer to manage the environment yourself, install the dependencies from `requirements.txt` and run the master entry points:
 
 ```bash
-python main.py <path_to_saveData.ms> <output_directory> -p [optional_username]
+python lce2java_main.py <path_to_saveData.ms> <output_directory>
+python java2lce_main.py <path_to_java_world> <output_saveData.ms>
 ```
-*Example: `python main.py saveData.ms ./ConvertedWorld -p TurboLightning`*
 
-**Important:** The `-p` or `--player` argument is highly recommended if you intend to play this world in Java Edition Singleplayer or host a LAN game. By providing your exact Xbox/PS username (e.g., `-p TurboLightning`), the script will automatically locate your specific inventory and location data from the LCE player files and inject it directly into the core `level.dat`. If you omit this argument, you will spawn with a completely empty inventory at the default world spawn point.
+**Note:** Both scripts are heavily interactive. When launched, they will parse the internal NBT structure of the worlds and pause to ask you how to map player profiles between Java and Legacy Console Edition. Follow the on-screen prompts!
 
 ## Internal Scripts
 
-1. `scripts/extract_ms.py` - Unpacks the `.ms` file into raw LCE files via Zlib/FAT decoding.
-2. `scripts/lce_to_java.py` - Translates LCE `.ms` extraction output paths to native Java Edition folder trees, and GZips `.dat` metadata files.
-3. `scripts/convert_chunks.py` - Deeply parses LCE `.mcr` binary structs and translates them into standard Anvil NBT `.mca` files.
-4. `scripts/inject_player.py` - Reads LCE numerical `.dat` files, maps `UUID` string tags to rename LAN player profiles, and injects host data into `level.dat`.
+1. `scripts/extract_ms.py` / `scripts/pack_ms.py` - Unpacks/Packs the `.ms` file into raw LCE files via Zlib/FAT decoding.
+2. `scripts/lce_to_java.py` / `scripts/java_to_lce.py` - Translates directory structures, applies GZip/Un-GZip conversions, and programmatically injects proprietary bounding boxes.
+3. `scripts/convert_chunks.py` / `scripts/convert_chunks_reverse.py` - Deeply parses/compiles LCE `.mcr` binary structs and translates them seamlessly into standard Anvil NBT `.mca` files.
+4. `scripts/inject_player.py` / `scripts/extract_player.py` - Reads and safely maps NBT `Player` arrays between Java `level.dat` bounds and LCE numerical `players/*.dat` network equivalents.
 5. `scripts/progress.py` - Centralized state manager handling `lce2java_progress.json`. Manages atomic file `.tmp` cleanup, ensures strict resume tracking, and handles safe interactive `Ctrl+C` interruption.
 
 ## Copyright and Disclaimer

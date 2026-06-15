@@ -497,7 +497,7 @@ def convert_all_regions(input_dir: str, output_dir: str, progress_mgr=None):
 
     max_workers = os.cpu_count() or 1
     num_slots = min(max_workers, len(tasks))
-    print(f"Converting {len(tasks)} region files using {max_workers} threads/processes...\n")
+    print(f"Converting {len(tasks)} regions using up to {max_workers} threads...\n")
     
     try:
         manager = multiprocessing.Manager()
@@ -507,13 +507,12 @@ def convert_all_regions(input_dir: str, output_dir: str, progress_mgr=None):
         _test_exec = executor_cls(max_workers=max_workers)
         _test_exec.shutdown()
     except OSError:
-        import queue as qlib
         queue = qlib.Queue()
         from concurrent.futures import ThreadPoolExecutor
         executor_cls = ThreadPoolExecutor
         max_workers = 1
         num_slots = min(max_workers, len(tasks))
-        print("Warning: Multiprocessing environment not fully supported. Falling back to safe single-thread processing.")
+        print("Warning: Failed to initialize Multiprocessing. Falling back to safe single-thread processing.")
         
     tasks_args = [(src, dest, queue, i) for i, (src, dest) in enumerate(tasks, 1)]
     

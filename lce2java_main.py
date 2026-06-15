@@ -5,10 +5,10 @@ if sys.version_info < (3, 8):
     sys.exit(1)
 
 try:
-    import nbt
+    from nbt import nbt
 except ImportError:
     print("Error: Required dependency 'nbt' is not installed.", file=sys.stderr)
-    print("Please run the tool using the corresponding wrapper for your OS or install dependencies with 'pip install -r requirements.txt'.", file=sys.stderr)
+    print("Please run the tool using the corresponding wrapper for your OS or install dependencies with 'pip install -r requirements.txt' inside your venv.", file=sys.stderr)
     sys.exit(1)
 
 import os
@@ -25,13 +25,11 @@ def main():
     parser = argparse.ArgumentParser(description="Convert Minecraft Legacy Console Edition (LCE) worlds to Java 1.6.4")
     parser.add_argument("input_ms", help="Path to the LCE saveData.ms file")
     parser.add_argument("output_dir", help="Path to the output Java 1.6.4 world directory")
-    parser.add_argument("--player", "-p", help="Main username to inject into level.dat for Singleplayer host compatibility")
     
     args = parser.parse_args()
     
     input_ms = os.path.abspath(args.input_ms)
     output_dir = os.path.abspath(args.output_dir)
-    main_username = args.player
     
     if not os.path.exists(input_ms):
         print(f"Error: Input file {input_ms} does not exist.")
@@ -76,14 +74,63 @@ def main():
             print(f"\n--- Step 3: Converting Chunks (Skipped - Already completed) ---")
             
         # Step 4: Inject Player Data (Optional)
-        if main_username and not progress_mgr.is_step_completed("inject_player"):
-            print(f"\n--- Step 4: Injecting Player Data for '{main_username}' ---")
+        if not progress_mgr.is_step_completed("inject_player"):
             level_dat = os.path.join(output_dir, "level.dat")
             players_dir = os.path.join(output_dir, "players")
-            inject_player_data(level_dat, players_dir, main_username)
+            
+            target_username = progress_mgr.get_player_mapping("host_player")
+            if target_username is None:
+                # Interactive Prompt!
+                print("\n--- Interactive Player Mapping ---")
+                players = []
+                if os.path.exists(players_dir):
+                    for filename in os.listdir(players_dir):
+                        if not filename.endswith(".dat"): continue
+                        try:
+                            player_nbt = nbt.NBTFile(os.path.join(players_dir, filename))
+                            uuid_tag = player_nbt.get("UUID")
+                            if uuid_tag and isinstance(uuid_tag, nbt.TAG_String):
+                                players.append(uuid_tag.value)
+                        except Exception as e:
+                            print(f"Failed to read {filename}: {e}")
+                
+                if not players:
+                    print("No players found. Skipping host injection.")
+                    target_username = ""
+                    progress_mgr.set_player_mapping("host_player", target_username)
+                else:
+                    while target_username is None:
+                        print("\nDiscovered Players:")
+                        for i, name in enumerate(players):
+                            print(f"[{i+1}] {name}")
+                        print("[0] Skip (Do not inject any host)")
+                        try:
+                            ans = input("\nEnter the number of the player to inject into level.dat as the world Host: ").strip()
+                        except EOFError:
+                            print("\nInterrupted.")
+                            sys.exit(1)
+                            
+                        try:
+                            idx = int(ans)
+                            if idx == 0:
+                                target_username = ""
+                            elif 1 <= idx <= len(players):
+                                target_username = players[idx-1]
+                            else:
+                                print("Invalid selection.")
+                        except ValueError:
+                            print("Please enter a valid number.")
+                    progress_mgr.set_player_mapping("host_player", target_username)
+
+            if target_username:
+                print(f"\n--- Step 4: Injecting Player Data for '{target_username}' ---")
+            else:
+                print(f"\n--- Step 4: Processing Player Data (No Host Injected) ---")
+                
+            inject_player_data(level_dat, players_dir, target_username)
             progress_mgr.mark_step_completed("inject_player")
-        elif main_username:
-            print(f"\n--- Step 4: Injecting Player Data for '{main_username}' (Skipped - Already completed) ---")
+        else:
+            print(f"\n--- Step 4: Injecting Player Data (Skipped - Already completed) ---")
             
         # Completion
         with open(done_file, "w") as f:

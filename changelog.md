@@ -3,6 +3,30 @@
 This document outlines the security, robustness, and state-management features implemented to ensure foolproof world conversions across Linux and Windows environments.
 
 
+# 15-06-2026
+
+## Core Discoveries
+
+1. **LCE Metadata Bounding Boxes**: Java Edition generates truly infinite worlds, omitting engine-specific bounding box schemas from `level.dat`. Attempting to load a native Java world into LCE without these 15 proprietary tags (e.g., `XZSize`, `ClassicMoat`, `StrongholdX`) causes the engine to throw a fatal exception during the file-loading thread. Programmatically injecting these tags into the NBT tree dynamically resolves the issue.
+2. **FAT Header & Padding Architectures**: Native LCE engines require an 8-byte global payload header `[Num_FAT_Records] + [09 00 09 00]` prefixed immediately after the 4-byte FAT pointer. Furthermore, LCE files append a 32-bit Little-Endian UNIX timestamp to the end of every 144-byte FAT record, and rigidly iterate exactly up to the uncompressed data offset without relying on a null-terminating 144-byte record.
+3. **Region Payload Compression & Memory Exhaustion**: Using a standard 256-block height multiplier against LCE's 128-block `SparseNibbleStorage` array structure bloats the decompressed chunk weight heavily. Restoring the bitwise `(xz << 7) | y` index and dynamically engaging LCE's header-flag trimming for homogenous empty-air chunks is absolutely mandatory; otherwise, the uncompressed chunks instantly exhaust the rigid 512MB RAM heap allocated by the console engine.
+4. **Xbox Live Network UID Randomization**: The 64-bit numerical IDs utilized by the LCE engine (e.g., `17964124366068773039`) are completely mathematically disconnected from the player's username. They are 100% randomly generated upon a profile's very first launch and permanently cached in a local `uid.dat` file.
+5. **Win64 Hardcoded Host Dev UID**: Because the leaked Windows LCE port uses a cracked offline Xbox Live spoofing wrapper, local hosting often forces the session to fall back to a hardcoded 4J Studios Developer XUID (`16141134514358595374` / `0xE000D45248242F2E`).
+
+## Technical Implementations
+
+### 1. Fully Bidirectional Conversion (`java2lce`)
+Implemented a completely reversed pipeline that accurately converts standard Java 1.6.4 infinite worlds back into perfectly tailored, memory-efficient LCE `saveData.ms` archives capable of running seamlessly on the Windows Win64 port.
+
+### 2. Interactive Player UI 
+Ripped out the outdated hardcoded `-p` command-line argument format. The script now parses the `UUID` NBT tags inside the numerical LCE player `.dat` files at runtime and renders an interactive terminal UI. Users are now dynamically prompted to assign the local Host player (automatically binding the static Win64 Dev UID when converting back to LCE) and manually resolve network UID mapping for LAN profiles, bridging the gap between Java's `level.dat` format and LCE's `players/` directory architecture.
+
+### 3. Native GZip/Un-GZip Abstraction
+Java Edition `level.dat` and `players/*.dat` metadata strictly require GZip compression to be correctly listed and executed, while LCE's `saveData.ms` expects raw binary payloads natively since the entire MS archive is already Zlib-compressed. The layout translation layer (`lce_to_java.py` and `java_to_lce.py`) now dynamically handles GZip compression and decompression transparently during the `os.walk()` layout phase.
+
+### 4. Wrapper Script Evolution
+Forked the master wrapper scripts to establish dedicated entrypoints (`lce2java` and `java2lce`). Maintained complete integration with the atomic `progress.py` state manager, verifying that the smart `[Ctrl+C]` signal handler interacts gracefully and safely with Python's native blocking `input()` I/O loops across both pipelines.
+
 # 09-06-2026
 
 ## Core Discoveries

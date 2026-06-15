@@ -70,8 +70,8 @@ fi
 echo "=> Launching converter..."
 echo ""
 
-# Execute the main Python script, passing along any CLI arguments
-python main.py "$@"
+# Execute the main Python script
+python java2lce_main.py "$@"
 
 # Deactivate the virtual environment to leave the shell session clean
 deactivate
