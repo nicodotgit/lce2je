@@ -3,6 +3,31 @@
 This document outlines the security, robustness, and state-management features implemented to ensure foolproof world conversions across Linux and Windows environments.
 
 
+# 16-06-2026
+
+## Core Discoveries
+
+1. **Modern DataFixer UUID Crashes**: In certain cases, Legacy Console Edition stores entity and player UUIDs utilizing custom string prefixes (e.g., `ent81b8883cdb2a41799adead7d9cf3589f`). When a standard Java 1.6.4 `level.dat` or region chunk containing these custom formats is loaded into modern Minecraft (1.18+), the internal `EntityStringUuidFix` DataFixer crashes trying to upgrade the string. Natively recalculating and injecting mathematically correct `UUIDMost` and `UUIDLeast` 64-bit Long equivalents entirely bypasses the crash and securely restores legacy ownership attributes (like pet taming).
+2. **Java Edition Strict GZip Architectures**: Java 1.6.4 structurally enforces strict GZip encapsulation for `level.dat` and `players/*.dat` NBT files. However, modern Java builds fallback when encountering raw Uncompressed NBT. Explicitly trapping Python's `gzip.BadGzipFile` exceptions ensures cross-compatibility regardless of the underlying extraction method.
+3. **LCE Fixed World Constraints**: Unlike Java's infinite generation algorithm, Legacy Console architectures constrain world geometries into preset boundaries (Classic, Small, Medium, Large) using injected NBT parameter thresholds like `XZSize` and `HellScale`. Discrepancies between generating dimensional boundaries mathematically require rigorous clipping of out-of-bounds region chunk coordinates, and enforcing teleportation protocols for stranded player entities to prevent native console execution panics.
+
+## Technical Implementations
+
+### 1. Intelligent Java-to-LCE World Pruning
+Integrated an interactive coordinate boundary algorithm into the `java2lce` pipeline allowing users to select standard LCE geometries (Classic 864x864, Small 1024x1024, Medium 3072x3072, Large 5120x5120). The chunk parser dynamically calculates dimensional radiuses (incorporating strict 1:3 nether-overworld ratios for Classic/Small formats) and prunes any extraneous chunks to respect console memory limitations.
+
+### 2. Player Boundary Enforcement
+To accompany world pruning, the player extraction matrix automatically loops through multiplayer profiles and the central host to verify boundary legality. If a player is positioned in the void beyond the selected geometry, their NBT position is securely teleported back to the spawn coordinates to prevent permanent infinite-fall loops upon LCE load.
+
+### 3. Deep NBT UUID Sanitization 
+Rewrote the `decode_lce_chunk_payload` mapping loop to utilize a recursive compound scanner. The script scrubs every nested node within the decompressed `Entities` and `TileEntities` lists, purging proprietary LCE string IDs and recomputing them into valid `UUIDMost`/`UUIDLeast` integer values, future-proofing all exported chunks for 26.1+ modernization.
+
+### 4. Player Mapping Refinements
+The `lce2java` pipeline has been polished to allow explicitly keeping or discarding guest profiles, deleting discarded players from the extracted directory before generating the finalized save to securely prevent tracking bloat.
+
+### 5. Non-Standard Nether Warnings
+The `lce2java` extraction sequence now probes the `HellScale` parameter and alerts the user if the LCE world possessed a non 1:8 nether ratio format, warning them that their pre-existing portals will inherently de-sync due to Java's immutable spatial dimensions.
+
 # 15-06-2026
 
 ## Core Discoveries

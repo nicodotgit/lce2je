@@ -57,6 +57,29 @@ def main():
         else:
             print(f"--- Step 1: Extracting {input_ms} (Skipped - Already completed) ---")
             
+        # Warning for non 1:8 Nether
+        level_dat_temp = os.path.join(temp_dir, "level.dat")
+        if os.path.exists(level_dat_temp):
+            try:
+                import io
+                from nbt import nbt
+                with open(level_dat_temp, "rb") as f:
+                    l_nbt = nbt.NBTFile(buffer=io.BytesIO(f.read()))
+                if "Data" in l_nbt and "HellScale" in l_nbt["Data"]:
+                    hell_scale = l_nbt["Data"]["HellScale"].value
+                    if hell_scale != 8:
+                        has_nether = False
+                        for fn in os.listdir(temp_dir):
+                            if fn.startswith("DIM-1r.") and fn.endswith(".mcr"):
+                                has_nether = True
+                                break
+                        if has_nether:
+                            print(f"\nWARNING: This LCE world has a generated Nether with a 1:{hell_scale} ratio.")
+                            print("Java Edition uses a strict 1:8 Nether ratio. Your existing Nether portals will not link correctly in Java.")
+                            print("You may need to manually destroy and rebuild portals in Java to fix the linking.")
+            except Exception:
+                pass
+            
         # Step 2: Convert Directory Layout & GZip Data
         if not progress_mgr.is_step_completed("layout"):
             print(f"\n--- Step 2: Converting Layout ---")
@@ -79,8 +102,8 @@ def main():
             players_dir = os.path.join(output_dir, "players")
             
             target_username = progress_mgr.get_player_mapping("host_player")
-            if target_username is None:
-                # Interactive Prompt!
+            kept_players = progress_mgr.get_player_mapping("kept_players")
+            if kept_players is None or target_username is None:
                 print("\n--- Interactive Player Mapping ---")
                 players = []
                 if os.path.exists(players_dir):
@@ -95,31 +118,52 @@ def main():
                             print(f"Failed to read {filename}: {e}")
                 
                 if not players:
-                    print("No players found. Skipping host injection.")
+                    print("No players found. Skipping player injection.")
+                    kept_players = []
                     target_username = ""
+                    progress_mgr.set_player_mapping("kept_players", kept_players)
                     progress_mgr.set_player_mapping("host_player", target_username)
                 else:
-                    while target_username is None:
-                        print("\nDiscovered Players:")
-                        for i, name in enumerate(players):
-                            print(f"[{i+1}] {name}")
-                        print("[0] Skip (Do not inject any host)")
-                        try:
-                            ans = input("\nEnter the number of the player to inject into level.dat as the world Host: ").strip()
-                        except EOFError:
-                            print("\nInterrupted.")
-                            sys.exit(1)
+                    kept_players = []
+                    print("\nPlayer Selection:")
+                    for name in players:
+                        ans = ""
+                        while ans not in ["K", "D"]:
+                            try:
+                                ans = input(f"Keep player '{name}'? (K=Keep / D=Discard): ").strip().upper()
+                            except EOFError:
+                                print("\nInterrupted.")
+                                sys.exit(1)
+                        if ans == "K":
+                            kept_players.append(name)
                             
-                        try:
-                            idx = int(ans)
-                            if idx == 0:
-                                target_username = ""
-                            elif 1 <= idx <= len(players):
-                                target_username = players[idx-1]
-                            else:
-                                print("Invalid selection.")
-                        except ValueError:
-                            print("Please enter a valid number.")
+                    progress_mgr.set_player_mapping("kept_players", kept_players)
+                    
+                    if not kept_players:
+                        print("All players discarded. Skipping host injection.")
+                        target_username = ""
+                    else:
+                        while target_username is None:
+                            print("\nKept Players:")
+                            for i, name in enumerate(kept_players):
+                                print(f"[{i+1}] {name}")
+                            print("[0] Skip (Do not inject any host)")
+                            try:
+                                ans = input("\nEnter the number of the player to inject into level.dat as the world Host: ").strip()
+                            except EOFError:
+                                print("\nInterrupted.")
+                                sys.exit(1)
+                                
+                            try:
+                                idx = int(ans)
+                                if idx == 0:
+                                    target_username = ""
+                                elif 1 <= idx <= len(kept_players):
+                                    target_username = kept_players[idx-1]
+                                else:
+                                    print("Invalid selection.")
+                            except ValueError:
+                                print("Please enter a valid number.")
                     progress_mgr.set_player_mapping("host_player", target_username)
 
             if target_username:
@@ -127,7 +171,7 @@ def main():
             else:
                 print(f"\n--- Step 4: Processing Player Data (No Host Injected) ---")
                 
-            inject_player_data(level_dat, players_dir, target_username)
+            inject_player_data(level_dat, players_dir, target_username, kept_players)
             progress_mgr.mark_step_completed("inject_player")
         else:
             print(f"\n--- Step 4: Injecting Player Data (Skipped - Already completed) ---")
@@ -135,6 +179,7 @@ def main():
         # Completion
         with open(done_file, "w") as f:
             f.write("done")
+        progress_mgr.mark_file_created(done_file)
             
         print("\n=== Conversion Completed Successfully! ===")
         print(f"Your Java 1.6.4 world is located at: {output_dir}")

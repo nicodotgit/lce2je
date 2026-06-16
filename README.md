@@ -59,6 +59,8 @@ While LCE uses arbitrary numeric filenames, it hides the player's true username 
 ## Features
 
 - **Bidirectional Conversion**: Convert flawlessly from `LCE -> Java 1.6.4` and `Java 1.6.4 -> LCE`.
+- **Intelligent World Resizing & Pruning**: When converting Java to LCE, seamlessly select from `Classic`, `Small`, `Medium`, or `Large` World Sizes. The converter dynamically prunes out-of-bounds chunks and safely teleports out-of-bounds players back to spawn.
+- **Modern DataFixer Compatibility**: The pipeline recursively scrubs and sanitizes all proprietary LCE string UUIDs from chunk entities and player data, rebuilding standard native Java `UUIDMost`/`UUIDLeast` integers to prevent crashes when upgrading the world to modern Minecraft versions.
 - **Interactive Player Mapping**: Fully interactive terminal prompts guide you through safely linking Java multiplayer profiles to randomly generated LCE Xbox Live Network UIDs.
 - **Safe Pause & Resume**: Press `Ctrl+C` anytime during the conversion to interactively pause execution. You can `(s)ave` your precise progress, `(n)uke` safely to revert, or `(c)ancel` the pause to seamlessly continue.
 - **Atomic File Generation**: All converted chunks and metadata files are safely isolated using `.tmp` extensions until fully written. Power outages or hard interruptions will never corrupt your files.
@@ -68,7 +70,7 @@ While LCE uses arbitrary numeric filenames, it hides the player's true username 
 
 ## Usage
 
-The repository features a seamless automated workflow. You can either use the provided wrappers or run the Python script directly.
+The repository features a seamless automated workflow. You can either use the provided wrappers or run the Python script directly after cloning or downloading the zip of this repo.
 
 ### Using Wrappers (Recommended)
 

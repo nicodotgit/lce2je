@@ -168,6 +168,38 @@ def set_nibble_in_sec(arr: bytearray, index: int, value: int):
     else:
         arr[byte_idx] = (arr[byte_idx] & 0x0F) | (value << 4)
 
+
+def fix_uuid_strings(tag):
+    if hasattr(tag, "tags") and isinstance(tag.tags, list):
+        if tag.__class__.__name__ == "TAG_Compound":
+            if "UUID" in tag:
+                uuid_tag = tag["UUID"]
+                if uuid_tag.__class__.__name__ == "TAG_String":
+                    uuid_str = uuid_tag.value
+                    del tag["UUID"]
+                    hex_str = uuid_str
+                    if hex_str.startswith("ent") or hex_str.startswith("ply") or hex_str.startswith("evt"):
+                        hex_str = hex_str[3:]
+                    hex_str = hex_str.replace("-", "")
+                    
+                    if len(hex_str) == 32:
+                        try:
+                            most = int(hex_str[:16], 16)
+                            if most >= 2**63: most -= 2**64
+                            least = int(hex_str[16:], 16)
+                            if least >= 2**63: least -= 2**64
+                            
+                            if "UUIDMost" not in tag:
+                                from nbt import nbt
+                                tag.tags.append(nbt.TAG_Long(name="UUIDMost", value=most))
+                            if "UUIDLeast" not in tag:
+                                from nbt import nbt
+                                tag.tags.append(nbt.TAG_Long(name="UUIDLeast", value=least))
+                        except ValueError:
+                            pass
+        for subtag in tag.tags:
+            fix_uuid_strings(subtag)
+
 def decode_lce_chunk_payload(payload: bytes) -> nbt.NBTFile:
     offset = 0
     version = struct.unpack_from(">h", payload, offset)[0]
@@ -318,12 +350,14 @@ def decode_lce_chunk_payload(payload: bytes) -> nbt.NBTFile:
             if "Entities" in dynamic_root and isinstance(dynamic_root["Entities"], nbt.TAG_List):
                 entities = dynamic_root["Entities"]
                 entities.name = "Entities"
+                fix_uuid_strings(entities)
         except Exception: pass
             
         try:
             if "TileEntities" in dynamic_root and isinstance(dynamic_root["TileEntities"], nbt.TAG_List):
                 tile_entities = dynamic_root["TileEntities"]
                 tile_entities.name = "TileEntities"
+                fix_uuid_strings(tile_entities)
         except Exception: pass
             
         try:

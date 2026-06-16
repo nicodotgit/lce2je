@@ -8,9 +8,13 @@ cd "$(dirname "$0")" || exit
 VENV_DIR=".venv"
 VENV_HASH_FILE="$VENV_DIR/.venv_hash"
 
-# Check for python3
-if ! command -v python3 &> /dev/null; then
-    echo "Error: 'python3' is not installed or not in PATH."
+# Check for python
+if command -v python3 &> /dev/null; then
+    PYTHON_CMD="python3"
+elif command -v python &> /dev/null; then
+    PYTHON_CMD="python"
+else
+    echo "Error: 'python3' or 'python' is not installed or not in PATH."
     exit 1
 fi
 
@@ -24,7 +28,7 @@ build_venv() {
     # Trap interruption globally during the build
     trap 'echo -e "\n=> Interrupted during installation. Cleaning up corrupted environment..."; kill -9 $CURRENT_PID 2>/dev/null; rm -rf "$VENV_DIR"; exit 1' INT TERM
 
-    python3 -m venv "$VENV_DIR" &
+    $PYTHON_CMD -m venv "$VENV_DIR" &
     CURRENT_PID=$!
     wait $CURRENT_PID
     

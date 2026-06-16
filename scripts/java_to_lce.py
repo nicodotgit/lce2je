@@ -65,8 +65,23 @@ def convert_layout_to_lce(java_dir, lce_temp_dir, progress_mgr=None):
                         level_nbt = nbt.NBTFile(buffer=io.BytesIO(uncompressed_data))
                         data_tag = level_nbt.get("Data")
                         if data_tag:
+                            chosen_size = "Large"
+                            if progress_mgr:
+                                size_val = progress_mgr.get_player_mapping("world_size")
+                                if size_val:
+                                    chosen_size = size_val
+                            
+                            if chosen_size == "Classic":
+                                xz_size = 54; hell_scale = 3
+                            elif chosen_size == "Small":
+                                xz_size = 64; hell_scale = 3
+                            elif chosen_size == "Medium":
+                                xz_size = 192; hell_scale = 6
+                            else: # Large
+                                xz_size = 320; hell_scale = 8
+                                
                             lce_defaults = {
-                                "XZSize": (nbt.TAG_Int, 320),
+                                "XZSize": (nbt.TAG_Int, xz_size),
                                 "StrongholdX": (nbt.TAG_Int, 48),
                                 "StrongholdY": (nbt.TAG_Int, 0),
                                 "StrongholdZ": (nbt.TAG_Int, 32),
@@ -80,11 +95,13 @@ def convert_layout_to_lce(java_dir, lce_temp_dir, progress_mgr=None):
                                 "ClassicMoat": (nbt.TAG_Int, 0),
                                 "SmallMoat": (nbt.TAG_Int, 0),
                                 "MediumMoat": (nbt.TAG_Int, 0),
-                                "HellScale": (nbt.TAG_Int, 8)
+                                "HellScale": (nbt.TAG_Int, hell_scale)
                             }
                             for tag_name, (tag_class, default_val) in lce_defaults.items():
                                 if tag_name not in data_tag:
                                     data_tag.tags.append(tag_class(name=tag_name, value=default_val))
+                                elif tag_name in ["XZSize", "HellScale"]:
+                                    data_tag[tag_name].value = default_val
                             
                             out_buf = io.BytesIO()
                             level_nbt.write_file(buffer=out_buf)

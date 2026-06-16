@@ -47,6 +47,204 @@ def main():
         progress_mgr.cleanup_temp_files(temp_dir)
         
         setup_signal_handler(progress_mgr, temp_dir, os.path.dirname(output_ms))
+
+        # Step 0: Interactive Pre-Checks (World Size & Player Mapping)
+        if not progress_mgr.has_player_mapping() or progress_mgr.get_player_mapping("world_size") is None:
+            print("\n--- Pre-Conversion Setup ---")
+            
+            # Detect Nether
+            has_nether = False
+            dim1_dir = os.path.join(input_dir, "DIM-1", "region")
+            if os.path.exists(dim1_dir):
+                for f in os.listdir(dim1_dir):
+                    if f.endswith(".mca"):
+                        has_nether = True
+                        break
+                        
+            print("\n--- World Size Selection ---")
+            if has_nether:
+                print("Note: The Nether has been generated in this Java world.")
+                print("It is highly recommended to select 'Large' (L) to maintain the standard 1:8 Nether ratio.")
+                print("Selecting smaller sizes will compress the Nether ratio (e.g., 1:3) and severely distort portal links.")
+            
+            sizes_map = {"C": "Classic", "S": "Small", "M": "Medium", "L": "Large"}
+            print("Available Sizes:")
+            print(" [C] Classic (864x864, 1:3 Nether)")
+            print(" [S] Small (1024x1024, 1:3 Nether)")
+            print(" [M] Medium (3072x3072, 1:6 Nether)")
+            print(" [L] Large (5120x5120, 1:8 Nether)")
+            
+            world_size = None
+            while world_size not in sizes_map:
+                try:
+                    ans = input("Select world size (C/S/M/L) [Default: L]: ").strip().upper()
+                    if not ans:
+                        world_size = "L"
+                    elif ans in sizes_map:
+                        world_size = ans
+                except EOFError:
+                    print("\nInterrupted.")
+                    sys.exit(1)
+            
+            chosen_size = sizes_map[world_size]
+            progress_mgr.set_player_mapping("world_size", chosen_size)
+            print(f"Selected World Size: {chosen_size}")
+            
+            print("\n--- Interactive Player Mapping & Bounds Check ---")
+            has_host = False
+            host_username = None
+            level_dat_src = os.path.join(input_dir, "level.dat")
+            level_nbt = None
+            if os.path.exists(level_dat_src):
+                try:
+                    level_nbt = nbt.NBTFile(level_dat_src)
+                    if "Data" in level_nbt and "Player" in level_nbt["Data"]:
+                        has_host = True
+                except Exception as e:
+                    print(f"Warning: Failed to read level.dat for host player: {e}")
+                    
+            players_in_dir = []
+            players_src_dir = os.path.join(input_dir, "players")
+            if os.path.exists(players_src_dir):
+                for f in os.listdir(players_src_dir):
+                    if f.endswith(".dat"):
+                        players_in_dir.append(f[:-4])
+                        
+            if not has_host and not players_in_dir:
+                print("No players found. Skipping player mapping.")
+                progress_mgr.set_player_mapping("skip_all", True)
+                mapping_dict = {}
+            else:
+                canonical_players = set(players_in_dir)
+                level_dat_player_name = None
+                
+                if has_host:
+                    while level_dat_player_name is None:
+                        try:
+                            ans = input("\nA player was found in level.dat. What is the username of the host player in this world? (Leave blank to ignore): ").strip()
+                            level_dat_player_name = ans
+                        except EOFError:
+                            print("\nInterrupted.")
+                            sys.exit(1)
+                    if level_dat_player_name:
+                        canonical_players.add(level_dat_player_name)
+                
+                mapping_dict = {}
+                if level_dat_player_name:
+                    mapping_dict[level_dat_player_name] = {"source": "level.dat"}
+                for p in players_in_dir:
+                    if p != level_dat_player_name:
+                        mapping_dict[p] = {"source": "players_dir"}
+                        
+                # Bounds check
+                def get_bounds(size_name):
+                    if size_name == "Classic": return 54, 3
+                    if size_name == "Small": return 64, 3
+                    if size_name == "Medium": return 192, 6
+                    return 320, 8 # Large
+                
+                xz_size, hell_scale = get_bounds(chosen_size)
+                
+                for p in list(canonical_players):
+                    # parse their pos
+                    pos = None
+                    dim = 0
+                    try:
+                        if mapping_dict[p]["source"] == "level.dat" and level_nbt:
+                            player_tag = level_nbt["Data"]["Player"]
+                            pos = [val.value for val in player_tag["Pos"]]
+                            dim = player_tag["Dimension"].value
+                        else:
+                            p_nbt = nbt.NBTFile(os.path.join(players_src_dir, f"{p}.dat"))
+                            pos = [val.value for val in p_nbt["Pos"]]
+                            dim = p_nbt["Dimension"].value
+                    except Exception as e:
+                        print(f"Warning: Could not parse bounds for {p}: {e}")
+                        continue
+                        
+                    if pos is not None:
+                        x, y, z = pos
+                        out_of_bounds = False
+                        limit = xz_size * 8
+                        if dim == -1: limit = limit / hell_scale
+                        
+                        if dim != 1: # Skip strict End checks
+                            if x < -limit or x >= limit or z < -limit or z >= limit:
+                                out_of_bounds = True
+                                
+                        if out_of_bounds:
+                            print(f"\nWARNING: Player '{p}' is out of bounds for the selected world size ({chosen_size})! (Pos: {int(x)}, {int(y)}, {int(z)} in Dim {dim})")
+                            while True:
+                                try:
+                                    print(" [T] Teleport player to world spawn")
+                                    print(" [U] Upgrade world size (if possible)")
+                                    print(" [I] Ignore and risk LCE crash/void")
+                                    ans = input("Select action (T/U/I): ").strip().upper()
+                                    if ans == 'T':
+                                        mapping_dict[p]["teleport_to_spawn"] = True
+                                        print(f"Player '{p}' will be teleported to spawn.")
+                                        break
+                                    elif ans == 'U':
+                                        print("Please restart the script to pick a larger world size.")
+                                        sys.exit(1)
+                                    elif ans == 'I':
+                                        break
+                                except EOFError:
+                                    print("\nInterrupted.")
+                                    sys.exit(1)
+                                    
+                # Ask who is the LCE Win64 Host
+                player_list = sorted(list(canonical_players))
+                win64_host = None
+                if player_list:
+                    print("\n--- Select LCE Win64 Host ---")
+                    for i, p in enumerate(player_list):
+                        source_str = " (from level.dat)" if p == level_dat_player_name else " (from players/)"
+                        print(f" {i+1}) {p}{source_str}")
+                    print(f" {len(player_list)+1}) None / Not using LCE Win64")
+                    
+                    while True:
+                        try:
+                            ans = input("Select the player who will be the local Host: ").strip()
+                            if ans.isdigit():
+                                idx = int(ans) - 1
+                                if 0 <= idx < len(player_list):
+                                    win64_host = player_list[idx]
+                                    break
+                                elif idx == len(player_list):
+                                    break
+                        except EOFError:
+                            print("\nInterrupted.")
+                            sys.exit(1)
+                            
+                if win64_host:
+                    mapping_dict[win64_host]["action"] = "uid"
+                    mapping_dict[win64_host]["uid"] = "16141134514358595374"
+                    print(f"Assigned static Host UID to '{win64_host}'.")
+                        
+                for p in player_list:
+                    if p == win64_host:
+                        continue
+                    resolved = False
+                    while not resolved:
+                        try:
+                            print(f"\nAction for player '{p}':")
+                            ans = input("Enter exact LCE UID (hex/decimal), 'h' to generate a random hash, 'i' to ignore/delete: ").strip().lower()
+                            if ans == 'i':
+                                mapping_dict[p]["action"] = "ignore"
+                                resolved = True
+                            elif ans == 'h':
+                                mapping_dict[p]["action"] = "hash"
+                                resolved = True
+                            elif ans != '':
+                                mapping_dict[p]["action"] = "uid"
+                                mapping_dict[p]["uid"] = ans
+                                resolved = True
+                        except EOFError:
+                            print("\nInterrupted.")
+                            sys.exit(1)
+                            
+                progress_mgr.set_player_mapping("mapping", mapping_dict)
         
         # Step 1: Convert Directory Layout & Un-GZip Data
         if not progress_mgr.is_step_completed("layout"):
@@ -58,103 +256,6 @@ def main():
             
         # Step 2: Extract Player Data
         if not progress_mgr.is_step_completed("extract_player"):
-            if not progress_mgr.has_player_mapping():
-                print("\n--- Interactive Player Mapping ---")
-                has_host = False
-                host_username = None
-                level_dat_src = os.path.join(input_dir, "level.dat")
-                if os.path.exists(level_dat_src):
-                    try:
-                        level_nbt = nbt.NBTFile(level_dat_src)
-                        if "Data" in level_nbt and "Player" in level_nbt["Data"]:
-                            has_host = True
-                    except Exception:
-                        pass
-                        
-                players_in_dir = []
-                players_src_dir = os.path.join(input_dir, "players")
-                if os.path.exists(players_src_dir):
-                    for f in os.listdir(players_src_dir):
-                        if f.endswith(".dat"):
-                            players_in_dir.append(f[:-4])
-                            
-                if not has_host and not players_in_dir:
-                    print("No players found. Skipping player mapping.")
-                    progress_mgr.set_player_mapping("skip_all", True)
-                else:
-                    canonical_players = set(players_in_dir)
-                    level_dat_player_name = None
-                    
-                    if has_host:
-                        while level_dat_player_name is None:
-                            try:
-                                ans = input("\nA player was found in level.dat. What is the username of the host player in this world? (Leave blank to ignore): ").strip()
-                                level_dat_player_name = ans
-                            except EOFError:
-                                print("\nInterrupted.")
-                                sys.exit(1)
-                        if level_dat_player_name:
-                            canonical_players.add(level_dat_player_name)
-                    
-                    mapping_dict = {}
-                    if level_dat_player_name:
-                        mapping_dict[level_dat_player_name] = {"source": "level.dat"}
-                    for p in players_in_dir:
-                        if p != level_dat_player_name:
-                            mapping_dict[p] = {"source": "players_dir"}
-                            
-                    # Ask who is the LCE Win64 Host
-                    player_list = sorted(list(canonical_players))
-                    win64_host = None
-                    if player_list:
-                        print("\n--- Select LCE Win64 Host ---")
-                        for i, p in enumerate(player_list):
-                            source_str = " (from level.dat)" if p == level_dat_player_name else " (from players/)"
-                            print(f" {i+1}) {p}{source_str}")
-                        print(f" {len(player_list)+1}) None / Not using LCE Win64")
-                        
-                        while True:
-                            try:
-                                ans = input("Select the player who will be the local Host: ").strip()
-                                if ans.isdigit():
-                                    idx = int(ans) - 1
-                                    if 0 <= idx < len(player_list):
-                                        win64_host = player_list[idx]
-                                        break
-                                    elif idx == len(player_list):
-                                        break
-                            except EOFError:
-                                print("\nInterrupted.")
-                                sys.exit(1)
-                                
-                    if win64_host:
-                        mapping_dict[win64_host]["action"] = "uid"
-                        mapping_dict[win64_host]["uid"] = "16141134514358595374"
-                        print(f"Assigned static Host UID to '{win64_host}'.")
-                            
-                    for p in player_list:
-                        if p == win64_host:
-                            continue
-                        resolved = False
-                        while not resolved:
-                            try:
-                                print(f"\nAction for player '{p}':")
-                                ans = input("Enter exact LCE UID (hex/decimal), 'h' to generate a random hash, 'i' to ignore/delete: ").strip().lower()
-                                if ans == 'i':
-                                    mapping_dict[p]["action"] = "ignore"
-                                    resolved = True
-                                elif ans == 'h':
-                                    mapping_dict[p]["action"] = "hash"
-                                    resolved = True
-                                elif ans != '':
-                                    mapping_dict[p]["action"] = "uid"
-                                    mapping_dict[p]["uid"] = ans
-                                    resolved = True
-                            except EOFError:
-                                print("\nInterrupted.")
-                                sys.exit(1)
-                                
-                    progress_mgr.set_player_mapping("mapping", mapping_dict)
             
             mapping_dict = progress_mgr.get_player_mapping("mapping")
             if mapping_dict:

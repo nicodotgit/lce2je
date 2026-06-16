@@ -77,6 +77,7 @@ def pack_ms(input_dir, output_ms_path, progress_mgr=None):
     os.rename(temp_out, output_ms_path)
     
     if progress_mgr:
+        progress_mgr.mark_file_created(output_ms_path)
         progress_mgr.mark_step_completed("pack")
         
     print(f"Packing complete! Size: {len(final_data)} bytes")

@@ -16,6 +16,8 @@ def extract_all_players(level_dat_path: str, players_dir: str, mapping_dict: dic
         
     os.makedirs(players_dir, exist_ok=True)
     
+    spawn_pos = [0.0, 65.0, 0.0]
+    
     # 1. Process level.dat
     if os.path.exists(level_dat_path):
         try:
@@ -23,6 +25,10 @@ def extract_all_players(level_dat_path: str, players_dir: str, mapping_dict: dic
                 level_nbt = nbt.NBTFile(buffer=f)
                 
             data_tag = level_nbt.get("Data")
+            if data_tag:
+                if "SpawnX" in data_tag and "SpawnY" in data_tag and "SpawnZ" in data_tag:
+                    spawn_pos = [float(data_tag["SpawnX"].value), float(data_tag["SpawnY"].value), float(data_tag["SpawnZ"].value)]
+
             if data_tag and "Player" in data_tag:
                 # Find if any mapped player uses level.dat
                 host_username = None
@@ -44,6 +50,15 @@ def extract_all_players(level_dat_path: str, players_dir: str, mapping_dict: dic
                     for tag in player_tag.tags:
                         player_nbt.tags.append(tag)
                         
+                    # Teleport if out of bounds
+                    if host_data.get("teleport_to_spawn") and "Pos" in player_nbt:
+                        pos_list = nbt.TAG_List(type=nbt.TAG_Double)
+                        for val in spawn_pos:
+                            pos_list.tags.append(nbt.TAG_Double(val))
+                        player_nbt["Pos"] = pos_list
+                        if "Dimension" in player_nbt:
+                            player_nbt["Dimension"] = nbt.TAG_Int(0)
+                            
                     # Inject UUID tag
                     if "UUID" in player_nbt:
                         del player_nbt["UUID"]
@@ -106,6 +121,15 @@ def extract_all_players(level_dat_path: str, players_dir: str, mapping_dict: dic
                             with open(filepath, "rb") as f:
                                 player_nbt = nbt.NBTFile(buffer=f)
                                 
+                            # Teleport if out of bounds
+                            if data.get("teleport_to_spawn") and "Pos" in player_nbt:
+                                pos_list = nbt.TAG_List(type=nbt.TAG_Double)
+                                for val in spawn_pos:
+                                    pos_list.tags.append(nbt.TAG_Double(val))
+                                player_nbt["Pos"] = pos_list
+                                if "Dimension" in player_nbt:
+                                    player_nbt["Dimension"] = nbt.TAG_Int(0)
+                                    
                             if "UUID" in player_nbt:
                                 del player_nbt["UUID"]
                             player_nbt.tags.append(nbt.TAG_String(name="UUID", value=username))

@@ -353,7 +353,7 @@ def read_mca_chunks(filepath: str):
             
     return chunks
 
-def convert_java_region_file(src_path: str, dest_path: str, queue=None, task_id=None):
+def convert_java_region_file(src_path: str, dest_path: str, queue=None, task_id=None, bounds_info=None):
     try:
         if queue:
             queue.put((task_id, 'start', os.path.basename(src_path)))
@@ -367,10 +367,27 @@ def convert_java_region_file(src_path: str, dest_path: str, queue=None, task_id=
         converted_count = 0
         total_chunks = len(chunks)
         
+        basename = os.path.basename(src_path)
+        parts = basename[:-4].split('.')
+        rx = int(parts[1]) if len(parts) >= 3 else 0
+        rz = int(parts[2]) if len(parts) >= 3 else 0
+        
         for i, (lx, lz, chunk_nbt) in enumerate(chunks):
             if queue and i % max(1, total_chunks // 16) == 0:
                 queue.put((task_id, 'progress', int((i / total_chunks) * 1024)))
                 
+            global_cx = (rx * 32) + lx
+            global_cz = (rz * 32) + lz
+            
+            if bounds_info:
+                xz_size, hell_scale, dim = bounds_info
+                limit = xz_size / 2
+                if dim == -1: limit = limit / hell_scale
+                
+                if dim != 1:
+                    if not ((-limit) <= global_cx < limit and (-limit) <= global_cz < limit):
+                        continue # Prune out-of-bounds chunk
+                        
             try:
                 lce_payload = encode_lce_chunk_payload(chunk_nbt)
                 writer.write_chunk(lx, lz, lce_payload)
@@ -448,8 +465,28 @@ def convert_all_regions_reverse(input_dir: str, output_dir: str, progress_mgr=No
         num_slots = min(max_workers, len(tasks))
         print("Warning: Failed to initialize Multiprocessing. Falling back to safe single-thread processing.")
         
-    tasks_args = [(src, dest, queue, i) for i, (src, dest) in enumerate(tasks, 1)]
-    
+    chosen_size = "Large"
+    if progress_mgr:
+        size_val = progress_mgr.get_player_mapping("world_size")
+        if size_val: chosen_size = size_val
+        
+    if chosen_size == "Classic":
+        xz_size = 54; hell_scale = 3
+    elif chosen_size == "Small":
+        xz_size = 64; hell_scale = 3
+    elif chosen_size == "Medium":
+        xz_size = 192; hell_scale = 6
+    else: # Large
+        xz_size = 320; hell_scale = 8
+        
+    tasks_args = []
+    for i, (src, dest) in enumerate(tasks, 1):
+        basename = os.path.basename(dest)
+        if dest.find("DIM-1") != -1 or basename.startswith("DIM-1"): dim = -1
+        elif dest.find("DIM1") != -1 or basename.startswith("DIM1"): dim = 1
+        else: dim = 0
+        tasks_args.append((src, dest, queue, i, (xz_size, hell_scale, dim)))
+
     with executor_cls(max_workers=max_workers) as executor:
         for arg in tasks_args:
             executor.submit(convert_java_region_file, *arg)
