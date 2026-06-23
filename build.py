@@ -16,9 +16,9 @@ if __name__ == '__main__':
         '--noconfirm',
         '--clean'
     ]
+    args.append('--onefile')
     
     if os.name == 'nt':
-        args.append('--onefile')
         args.append('--version-file=version_info.txt')
         
     PyInstaller.__main__.run(args)

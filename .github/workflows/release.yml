@@ -55,7 +55,7 @@ jobs:
           path: dist/lce2je_v${{ github.event.inputs.version }}.exe
 
   build-linux:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -79,42 +79,15 @@ jobs:
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       - name: Build Linux Binary
-        run: python build.py
-
-      - name: Create AppImage
         run: |
-          mkdir -p AppDir/usr/bin
-          cp -r dist/lce2je/* AppDir/usr/bin/
-          
-          cat <<EOF > AppDir/lce2je.desktop
-          [Desktop Entry]
-          Type=Application
-          Name=lce2je
-          Exec=lce2je
-          Icon=lce2je
-          Categories=Utility;
-          Terminal=false
-          EOF
-          
-          cp assets/logo/lce2je_logo.png AppDir/lce2je.png
-          ln -s lce2je.png AppDir/.DirIcon
-          
-          cat <<'EOF' > AppDir/AppRun
-          #!/bin/sh
-          HERE="$(dirname "$(readlink -f "${0}")")"
-          exec "${HERE}/usr/bin/lce2je" "$@"
-          EOF
-          chmod +x AppDir/AppRun
-          
-          wget -c "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage" -O appimagetool
-          chmod +x appimagetool
-          ./appimagetool --appimage-extract-and-run AppDir lce2je_v${{ github.event.inputs.version }}.AppImage
+          python build.py
+          mv dist/lce2je dist/lce2je_v${{ github.event.inputs.version }}_linux
           
       - name: Upload Linux Asset
         uses: actions/upload-artifact@v4
         with:
           name: lce2je-linux
-          path: lce2je_v${{ github.event.inputs.version }}.AppImage
+          path: dist/lce2je_v${{ github.event.inputs.version }}_linux
 
   create-release:
     needs: [build-windows, build-linux]
@@ -140,5 +113,5 @@ jobs:
           name: lce2je v${{ github.event.inputs.version }}
           files: |
             ./release-assets/lce2je_v${{ github.event.inputs.version }}.exe
-            ./release-assets/lce2je_v${{ github.event.inputs.version }}.AppImage
+            ./release-assets/lce2je_v${{ github.event.inputs.version }}_linux
           generate_release_notes: true
