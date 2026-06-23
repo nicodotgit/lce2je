@@ -1,7 +1,7 @@
 import sys
 
 if sys.version_info < (3, 8):
-    print("Error: LCE2Java requires Python 3.8 or higher.", file=sys.stderr)
+    print("Error: lce2je requires Python 3.8 or higher.", file=sys.stderr)
     sys.exit(1)
 
 try:
@@ -35,7 +35,7 @@ def main():
         print(f"Error: Input file {input_ms} does not exist.")
         sys.exit(1)
         
-    done_file = os.path.join(output_dir, ".lce2java_done")
+    done_file = os.path.join(output_dir, ".lce2je_done")
     if os.path.exists(done_file):
         print(f"Error: The output directory '{output_dir}' already contains a completely converted world.")
         sys.exit(1)

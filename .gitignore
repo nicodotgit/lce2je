@@ -9,9 +9,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 _temp_lce_extract/
-_temp_java2lce/
+_temp_je2lce/
 *.tmp
-.lce2java_done
+.lce2je_done
 .pytest_cache/
 .mypy_cache/
 .DS_Store

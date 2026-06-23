@@ -1,7 +1,7 @@
 import sys
 
 if sys.version_info < (3, 8):
-    print("Error: LCE2Java requires Python 3.8 or higher.", file=sys.stderr)
+    print("Error: lce2je requires Python 3.8 or higher.", file=sys.stderr)
     sys.exit(1)
 
 try:
@@ -39,7 +39,7 @@ def main():
         print(f"Error: The output file '{output_ms}' already exists. Please delete it or specify a different path.")
         sys.exit(1)
         
-    temp_dir = os.path.abspath("_temp_java2lce")
+    temp_dir = os.path.abspath("_temp_je2lce")
     
     try:
         progress_mgr = ProgressManager(os.path.dirname(output_ms))

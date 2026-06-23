@@ -75,7 +75,7 @@ echo "=> Launching converter..."
 echo ""
 
 # Execute the main Python script
-python lce2java_main.py "$@"
+python lce2je_main.py "$@"
 
 # Deactivate the virtual environment to leave the shell session clean
 deactivate

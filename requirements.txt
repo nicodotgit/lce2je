@@ -1,1 +1,3 @@
 NBT
+PyQt6
+pyinstaller

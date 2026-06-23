@@ -1,7 +1,24 @@
-# lce2java - Technical Changelog & Discoveries
+# lce2je - Technical Changelog & Discoveries
 
 This document outlines the security, robustness, and state-management features implemented to ensure foolproof world conversions across Linux and Windows environments.
 
+# 22-06-2026
+
+## Core Discoveries
+
+1. **GitHub Actions Runner Permissions and Environment Injectors**: By default, automated GitHub Release deployments utilize restricted, read-only `GITHUB_TOKEN`. To push dynamically compiled `.exe` and `.AppImage` artifacts directly to a repository's Release tab, the workflow's permissions mapping must explicitly declare `contents: write`.
+2. **Cross-Platform PyQt6 Path Resolution Constraints**: Hardcoding directory delimiters (`/` or `\`) strictly triggers unhandled path traversal failures when resolving bundled binaries or extraction routines outside their native architectures. Wrapping all nested payload architectures in native `os.path.join` algorithms guarantees absolute parity across MacOS, Linux POSIX, and Windows NTFS virtual path arrays.
+
+## Technical Implementations
+
+### 1. Dedicated GUI Architecture Refactoring
+Added the frontend GUI and background `gui_worker.py` threads. 
+
+### 2. CI/CD Deployment Orchestration
+The pipeline differentiates between `debug` (artifact-only) and `release` channels. Upon execution, the workflow bootstraps PyInstaller via `pip`, synchronizes dependencies, compiles compressed `.exe` and `.AppImage` standalone binaries using host-agnostic `--onefile` and `--onedir`, and automatically bundles Git-native commit histories into formally tagged GitHub Release pages.
+
+### 4. Branding Standardization
+Formalized structural identification metadata for PyInstaller payload compilation. Configured Window-native file description mapping within `version_info.txt`, linked to the interactive About Dialog.
 
 # 16-06-2026
 
@@ -14,7 +31,7 @@ This document outlines the security, robustness, and state-management features i
 ## Technical Implementations
 
 ### 1. Intelligent Java-to-LCE World Pruning
-Integrated an interactive coordinate boundary algorithm into the `java2lce` pipeline allowing users to select standard LCE geometries (Classic 864x864, Small 1024x1024, Medium 3072x3072, Large 5120x5120). The chunk parser dynamically calculates dimensional radiuses (incorporating strict 1:3 nether-overworld ratios for Classic/Small formats) and prunes any extraneous chunks to respect console memory limitations.
+Integrated an interactive coordinate boundary algorithm into the `je2lce` pipeline allowing users to select standard LCE geometries (Classic 864x864, Small 1024x1024, Medium 3072x3072, Large 5120x5120). The chunk parser dynamically calculates dimensional radiuses (incorporating strict 1:3 nether-overworld ratios for Classic/Small formats) and prunes any extraneous chunks to respect console memory limitations.
 
 ### 2. Player Boundary Enforcement
 To accompany world pruning, the player extraction matrix automatically loops through multiplayer profiles and the central host to verify boundary legality. If a player is positioned in the void beyond the selected geometry, their NBT position is securely teleported back to the spawn coordinates to prevent permanent infinite-fall loops upon LCE load.
@@ -23,10 +40,10 @@ To accompany world pruning, the player extraction matrix automatically loops thr
 Rewrote the `decode_lce_chunk_payload` mapping loop to utilize a recursive compound scanner. The script scrubs every nested node within the decompressed `Entities` and `TileEntities` lists, purging proprietary LCE string IDs and recomputing them into valid `UUIDMost`/`UUIDLeast` integer values, future-proofing all exported chunks for 26.1+ modernization.
 
 ### 4. Player Mapping Refinements
-The `lce2java` pipeline has been polished to allow explicitly keeping or discarding guest profiles, deleting discarded players from the extracted directory before generating the finalized save to securely prevent tracking bloat.
+The `lce2je` pipeline has been polished to allow explicitly keeping or discarding guest profiles, deleting discarded players from the extracted directory before generating the finalized save to securely prevent tracking bloat.
 
 ### 5. Non-Standard Nether Warnings
-The `lce2java` extraction sequence now probes the `HellScale` parameter and alerts the user if the LCE world possessed a non 1:8 nether ratio format, warning them that their pre-existing portals will inherently de-sync due to Java's immutable spatial dimensions.
+The `lce2je` extraction sequence now probes the `HellScale` parameter and alerts the user if the LCE world possessed a non 1:8 nether ratio format, warning them that their pre-existing portals will inherently de-sync due to Java's immutable spatial dimensions.
 
 # 15-06-2026
 
@@ -40,7 +57,7 @@ The `lce2java` extraction sequence now probes the `HellScale` parameter and aler
 
 ## Technical Implementations
 
-### 1. Fully Bidirectional Conversion (`java2lce`)
+### 1. Fully Bidirectional Conversion (`je2lce`)
 Implemented a completely reversed pipeline that accurately converts standard Java 1.6.4 infinite worlds back into perfectly tailored, memory-efficient LCE `saveData.ms` archives capable of running seamlessly on the Windows Win64 port.
 
 ### 2. Interactive Player UI 
@@ -50,7 +67,7 @@ Ripped out the outdated hardcoded `-p` command-line argument format. The script 
 Java Edition `level.dat` and `players/*.dat` metadata strictly require GZip compression to be correctly listed and executed, while LCE's `saveData.ms` expects raw binary payloads natively since the entire MS archive is already Zlib-compressed. The layout translation layer (`lce_to_java.py` and `java_to_lce.py`) now dynamically handles GZip compression and decompression transparently during the `os.walk()` layout phase.
 
 ### 4. Wrapper Script Evolution
-Forked the master wrapper scripts to establish dedicated entrypoints (`lce2java` and `java2lce`). Maintained complete integration with the atomic `progress.py` state manager, verifying that the smart `[Ctrl+C]` signal handler interacts gracefully and safely with Python's native blocking `input()` I/O loops across both pipelines.
+Forked the master wrapper scripts to establish dedicated entrypoints (`lce2je` and `je2lce`). Maintained complete integration with the atomic `progress.py` state manager, verifying that the smart `[Ctrl+C]` signal handler interacts gracefully and safely with Python's native blocking `input()` I/O loops across both pipelines.
 
 # 09-06-2026
 
@@ -67,7 +84,7 @@ Forked the master wrapper scripts to establish dedicated entrypoints (`lce2java`
 Transitioned all `.mcr` to `.mca` parsing, `level.dat` GZip conversions, and player NBT injections to an atomic `.tmp` buffer format. The scripts now write exclusively to `filename.tmp` and execute a native `os.rename()` only when the I/O flush is completely finished, ensuring zero corruption if execution abruptly halts.
 
 ### 2. Centralized Progress State (`progress.py`)
-Engineered a centralized `lce2java_progress.json` state tracker. 
+Engineered a centralized `lce2je_progress.json` state tracker. 
 - **Integrity**: Validates the absolute path of `input_ms` to strictly prevent mixing two different world saves inside the same output directory.
 - **Micro-Tracking**: Maintains an array of `created_files` tracking exactly what specific chunks and metadata have been successfully processed and atomically renamed.
 

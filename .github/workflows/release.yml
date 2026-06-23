@@ -1,0 +1,140 @@
+name: Build Release Binaries
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build Type'
+        required: true
+        default: 'debug'
+        type: choice
+        options:
+          - debug
+          - release
+      version:
+        description: 'Version string (e.g. 1.0.0)'
+        required: true
+        default: '1.0.0'
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          
+      - name: Inject Version Metadata
+        run: |
+          (Get-Content version_info.txt) -replace "1\.0\.0", "${{ github.event.inputs.version }}" | Set-Content version_info.txt
+          (Get-Content gui_main.py) -replace "Version 1\.0\.0", "Version ${{ github.event.inputs.version }}" | Set-Content gui_main.py
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install PyQt6 PyInstaller
+          if (Test-Path -Path 'requirements.txt') { pip install -r requirements.txt }
+
+      - name: Build Windows Executable
+        run: python build.py
+
+      - name: Upload Windows Asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: lce2je-windows
+          path: dist/lce2je.exe
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Inject Version Metadata
+        run: |
+          sed -i 's/1\.0\.0/${{ github.event.inputs.version }}/g' version_info.txt
+          sed -i 's/Version 1\.0\.0/Version ${{ github.event.inputs.version }}/g' gui_main.py
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install PyQt6 PyInstaller
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Build Linux Binary
+        run: python build.py
+
+      - name: Create AppImage
+        run: |
+          mkdir -p AppDir/usr/bin
+          cp -r dist/lce2je/* AppDir/usr/bin/
+          
+          cat <<EOF > AppDir/lce2je.desktop
+          [Desktop Entry]
+          Type=Application
+          Name=lce2je
+          Exec=lce2je
+          Icon=lce2je_logo
+          Categories=Utility;
+          EOF
+          
+          cp assets/logo/lce2je_logo.png AppDir/lce2je_logo.png
+          
+          cat <<'EOF' > AppDir/AppRun
+          #!/bin/sh
+          HERE="$(dirname "$(readlink -f "${0}")")"
+          export PATH="${HERE}/usr/bin:${PATH}"
+          export LD_LIBRARY_PATH="${HERE}/usr/bin:${LD_LIBRARY_PATH}"
+          exec "${HERE}/usr/bin/lce2je" "$@"
+          EOF
+          chmod +x AppDir/AppRun
+          
+          wget -c "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage" -O appimagetool
+          chmod +x appimagetool
+          ./appimagetool --appimage-extract-and-run AppDir lce2je-x86_64.AppImage
+          
+      - name: Upload Linux Asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: lce2je-linux
+          path: lce2je.AppImage
+
+  create-release:
+    needs: [build-windows, build-linux]
+    if: github.event.inputs.build_type == 'release'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Windows Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: lce2je-windows
+          path: ./release-assets
+
+      - name: Download Linux Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: lce2je-linux
+          path: ./release-assets
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.event.inputs.version }}
+          name: lce2je v${{ github.event.inputs.version }}
+          files: |
+            ./release-assets/lce2je.exe
+            ./release-assets/lce2je.AppImage
+          generate_release_notes: true

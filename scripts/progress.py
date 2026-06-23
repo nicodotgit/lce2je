@@ -4,7 +4,7 @@ import glob
 
 class ProgressManager:
     def __init__(self, output_dir):
-        self.filepath = os.path.join(output_dir, "lce2java_progress.json")
+        self.filepath = os.path.join(output_dir, "lce2je_progress.json")
         self.output_dir = output_dir
         self.state = {"input_file": None, "completed_steps": [], "created_files": [], "player_mapping": {}}
         self.load()
