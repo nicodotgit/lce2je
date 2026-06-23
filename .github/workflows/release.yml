@@ -55,7 +55,7 @@ jobs:
           path: dist/lce2je_v${{ github.event.inputs.version }}.exe
 
   build-linux:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -91,17 +91,17 @@ jobs:
           Type=Application
           Name=lce2je
           Exec=lce2je
-          Icon=lce2je_logo
+          Icon=lce2je
           Categories=Utility;
+          Terminal=false
           EOF
           
-          cp assets/logo/lce2je_logo.png AppDir/lce2je_logo.png
+          cp assets/logo/lce2je_logo.png AppDir/lce2je.png
+          ln -s lce2je.png AppDir/.DirIcon
           
           cat <<'EOF' > AppDir/AppRun
           #!/bin/sh
           HERE="$(dirname "$(readlink -f "${0}")")"
-          export PATH="${HERE}/usr/bin:${PATH}"
-          export LD_LIBRARY_PATH="${HERE}/usr/bin:${LD_LIBRARY_PATH}"
           exec "${HERE}/usr/bin/lce2je" "$@"
           EOF
           chmod +x AppDir/AppRun
