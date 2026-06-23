@@ -55,7 +55,7 @@ jobs:
           path: dist/lce2je_v${{ github.event.inputs.version }}.exe
 
   build-linux:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
